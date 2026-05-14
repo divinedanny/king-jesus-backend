@@ -45,6 +45,13 @@ class Product(models.Model):
     height = models.FloatField(default=0.0) # in cm
     weight = models.FloatField(default=0.0) # in kg
 
+    @property
+    def average_rating(self):
+        reviews = self.reviews.all()
+        if not reviews:
+            return 0
+        return sum(r.rating for r in reviews) / len(reviews)
+
     def __str__(self):
         return self.name
 
