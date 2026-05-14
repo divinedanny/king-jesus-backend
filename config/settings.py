@@ -25,12 +25,12 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-an(c%)hoog%24^&nd%&#a(**mawo0574=suwch$kc5l7pb^g%y'
+SECRET_KEY = os.getenv('SECRET_KEY', 'django-insecure-default-key-change-this-in-prod')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = os.getenv('DEBUG', 'False') == 'True'
 
-ALLOWED_HOSTS = ['*']
+ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', '*').split(',')
 
 
 # Application definition
@@ -41,6 +41,7 @@ INSTALLED_APPS = [
     'django.contrib.contenttypes',
     'django.contrib.sessions',
     'django.contrib.messages',
+    'whitenoise.runserver_nostatic',
     'django.contrib.staticfiles',
     
     # Third party apps
@@ -66,6 +67,7 @@ AUTH_USER_MODEL = 'core.User'
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -158,7 +160,11 @@ ACCOUNT_LOGIN_METHODS = {'email'}
 ACCOUNT_SIGNUP_FIELDS = ['email*', 'password1*', 'password2*']
 ACCOUNT_EMAIL_VERIFICATION = 'none'
 
-CORS_ALLOW_ALL_ORIGINS = True # Change in production
+CORS_ALLOWED_ORIGINS = os.getenv('CORS_ALLOWED_ORIGINS', 'http://localhost:3000').split(',')
+if '*' in CORS_ALLOWED_ORIGINS:
+    CORS_ALLOW_ALL_ORIGINS = True
+else:
+    CORS_ALLOW_ALL_ORIGINS = False
 
 # Terminal Africa, Paystack, Stripe Keys (from .env)
 TERMINAL_AFRICA_SECRET_KEY = os.getenv('TERMINAL_AFRICA_SECRET_KEY')
@@ -166,6 +172,7 @@ DEFAULT_SENDER_ADDRESS_ID = os.getenv('DEFAULT_SENDER_ADDRESS_ID', 'default_id')
 PAYSTACK_SECRET_KEY = os.getenv('PAYSTACK_SECRET_KEY')
 STRIPE_SECRET_KEY = os.getenv('STRIPE_SECRET_KEY')
 STRIPE_WEBHOOK_SECRET = os.getenv('STRIPE_WEBHOOK_SECRET')
+GOOGLE_AUTH_CALLBACK_URL = os.getenv('GOOGLE_AUTH_CALLBACK_URL', 'http://localhost:3000')
 
 # AWS S3 Settings
 AWS_ACCESS_KEY_ID = os.getenv('AWS_ACCESS_KEY_ID')
@@ -180,7 +187,7 @@ if AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY:
             "BACKEND": "storages.backends.s3.S3Storage",
         },
         "staticfiles": {
-            "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
+            "BACKEND": "storages.backends.s3.S3Storage",
         },
     }
 else:
@@ -189,7 +196,7 @@ else:
             "BACKEND": "django.core.files.storage.FileSystemStorage",
         },
         "staticfiles": {
-            "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
+            "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
         },
     }
 
