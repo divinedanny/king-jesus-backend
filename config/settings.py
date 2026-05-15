@@ -160,11 +160,8 @@ ACCOUNT_LOGIN_METHODS = {'email'}
 ACCOUNT_SIGNUP_FIELDS = ['email*', 'password1*', 'password2*']
 ACCOUNT_EMAIL_VERIFICATION = 'none'
 
+CORS_ALLOW_ALL_ORIGINS = True
 CORS_ALLOWED_ORIGINS = os.getenv('CORS_ALLOWED_ORIGINS', 'http://localhost:3000').split(',')
-if '*' in CORS_ALLOWED_ORIGINS:
-    CORS_ALLOW_ALL_ORIGINS = True
-else:
-    CORS_ALLOW_ALL_ORIGINS = False
 
 # Terminal Africa, Paystack, Stripe Keys (from .env)
 TERMINAL_AFRICA_SECRET_KEY = os.getenv('TERMINAL_AFRICA_SECRET_KEY')
