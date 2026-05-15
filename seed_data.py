@@ -20,7 +20,7 @@ def seed_data():
         currency='NGN',
         stock_quantity=50,
         category=shirts,
-        images=['https://example.com/grace-tshirt.jpg'],
+        images=['https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?auto=format&fit=crop&q=80&w=1000'],
         length=30, width=25, height=2, weight=0.3
     )
 
@@ -31,7 +31,7 @@ def seed_data():
         currency='NGN',
         stock_quantity=30,
         category=hoodies,
-        images=['https://example.com/faith-hoodie.jpg'],
+        images=['https://images.unsplash.com/photo-1556821840-3a63f95609a7?auto=format&fit=crop&q=80&w=1000'],
         length=35, width=30, height=5, weight=0.6
     )
 
@@ -42,7 +42,7 @@ def seed_data():
         currency='NGN',
         stock_quantity=100,
         category=accessories,
-        images=['https://example.com/cross-keychain.jpg'],
+        images=['https://images.unsplash.com/photo-1590483734748-361463c4424c?auto=format&fit=crop&q=80&w=1000'],
         length=5, width=5, height=1, weight=0.05
     )
 
@@ -53,7 +53,7 @@ def seed_data():
         currency='USD',
         stock_quantity=50,
         category=shirts,
-        images=['https://example.com/grace-tshirt.jpg'],
+        images=['https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?auto=format&fit=crop&q=80&w=1000'],
         length=30, width=25, height=2, weight=0.3
     )
 
