@@ -4,28 +4,32 @@ import django
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'config.settings')
 django.setup()
 
-from core.models import Category, Product, User, Store, Inventory
+from core.models import Category, Product, User, Store, Inventory, StockTransfer
 
 def seed_data():
     # Superuser (Admin)
     if not User.objects.filter(email='admin@kingjesus.com').exists():
-        User.objects.create_superuser(
+        admin = User.objects.create_superuser(
             username='admin', 
             email='admin@kingjesus.com', 
             password='Admin@123456',
             role='Admin'
         )
         print("Superuser created successfully.")
+    else:
+        admin = User.objects.get(email='admin@kingjesus.com')
 
     # Manager
     if not User.objects.filter(email='manager@kingjesus.com').exists():
-        User.objects.create_user(
+        manager = User.objects.create_user(
             username='manager',
             email='manager@kingjesus.com',
             password='Manager@123456',
             role='Manager'
         )
         print("Manager user created.")
+    else:
+        manager = User.objects.get(email='manager@kingjesus.com')
 
     # Attendant
     if not User.objects.filter(email='attendant@kingjesus.com').exists():
@@ -53,7 +57,7 @@ def seed_data():
     accessories, _ = Category.objects.get_or_create(name='Accessories', slug='accessories')
     hoodies, _ = Category.objects.get_or_create(name='Hoodies', slug='hoodies')
 
-    # Products
+    # Products with improved Unsplash URLs
     products_data = [
         {
             'name': 'Grace T-Shirt',
@@ -64,7 +68,7 @@ def seed_data():
             'currency': 'NGN',
             'stock_quantity': 50,
             'category': shirts,
-            'images': ['https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?auto=format&fit=crop&q=80&w=1000'],
+            'images': ['https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?q=80&w=1000'],
             'length': 30, 'width': 25, 'height': 2, 'weight': 0.3
         },
         {
@@ -76,7 +80,7 @@ def seed_data():
             'currency': 'NGN',
             'stock_quantity': 30,
             'category': hoodies,
-            'images': ['https://images.unsplash.com/photo-1556821840-3a63f95609a7?auto=format&fit=crop&q=80&w=1000'],
+            'images': ['https://images.unsplash.com/photo-1556821840-3a63f95609a7?q=80&w=1000'],
             'length': 35, 'width': 30, 'height': 5, 'weight': 0.6
         },
         {
@@ -88,7 +92,7 @@ def seed_data():
             'currency': 'NGN',
             'stock_quantity': 100,
             'category': accessories,
-            'images': ['https://images.unsplash.com/photo-1590483734748-361463c4424c?auto=format&fit=crop&q=80&w=1000'],
+            'images': ['https://images.unsplash.com/photo-1618354691373-d851c5c3a990?q=80&w=1000'],
             'length': 5, 'width': 5, 'height': 1, 'weight': 0.05
         },
         {
@@ -100,7 +104,7 @@ def seed_data():
             'currency': 'USD',
             'stock_quantity': 50,
             'category': shirts,
-            'images': ['https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?auto=format&fit=crop&q=80&w=1000'],
+            'images': ['https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?q=80&w=1000'],
             'length': 30, 'width': 25, 'height': 2, 'weight': 0.3
         }
     ]
@@ -123,7 +127,20 @@ def seed_data():
             defaults={'quantity': retail_qty}
         )
 
-    print("Seed data updated with RBAC and Multi-Store support successfully.")
+    # Seed a sample transfer
+    tshirt = Product.objects.get(sku='SHIRT-GRACE-001')
+    if not StockTransfer.objects.filter(product=tshirt, status='Initiated').exists():
+        StockTransfer.objects.create(
+            product=tshirt,
+            from_store=warehouse,
+            to_store=retail_lagos,
+            quantity=5,
+            status='Initiated',
+            initiated_by=manager
+        )
+        print("Sample Stock Transfer seeded.")
+
+    print("Seed data updated with RBAC, Multi-Store, and Transfers support successfully.")
 
 if __name__ == '__main__':
     seed_data()
