@@ -8,7 +8,7 @@ from barcode.writer import ImageWriter
 from django.conf import settings
 from django.http import HttpResponse
 from django.views.decorators.csrf import csrf_exempt
-from django.db import transaction
+from django.db import transaction, models
 from django.db.models import Sum, Q, Count
 from django.db.models.functions import TruncDay, TruncWeek
 from django.utils import timezone
@@ -516,7 +516,7 @@ def create_order(request):
         # POS payment - fulfill immediately
         order.status = 'Paid'
         order.save()
-        fulfill_order(order)
+        fulfill_order(order, performed_by=request.user)
         return Response({
             'order_id': order.id,
             'status': 'Order recorded and fulfilled'

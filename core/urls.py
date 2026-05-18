@@ -28,6 +28,7 @@ urlpatterns = [
     path('checkout/whatsapp-order/', whatsapp_order, name='whatsapp-order'),
     path('analytics/sales/', sales_analytics, name='sales-analytics'),
     path('tracking/<str:tracking_number>/', track_shipment, name='track-shipment'),
+    path('pos/product-by-barcode/', ProductViewSet.as_view({'get': 'by_barcode'}), name='pos-product-by-barcode'),
     path('payments/paystack/webhook/', paystack_webhook, name='paystack-webhook'),
     path('payments/stripe/webhook/', stripe_webhook, name='stripe-webhook'),
     path('', include(router.urls)),
