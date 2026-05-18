@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import User, Category, Product, Order, OrderItem, ShippingAddress, Review, Wishlist, Store, Inventory, StockTransaction
+from .models import User, Category, Product, Order, OrderItem, ShippingAddress, Review, Wishlist, Store, Inventory, StockTransaction, StockTransfer
 
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
@@ -28,6 +28,17 @@ class StockTransactionSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = StockTransaction
+        fields = '__all__'
+
+class StockTransferSerializer(serializers.ModelSerializer):
+    product_name = serializers.ReadOnlyField(source='product.name')
+    from_store_name = serializers.ReadOnlyField(source='from_store.name')
+    to_store_name = serializers.ReadOnlyField(source='to_store.name')
+    initiated_by_email = serializers.ReadOnlyField(source='initiated_by.email')
+    received_by_email = serializers.ReadOnlyField(source='received_by.email')
+
+    class Meta:
+        model = StockTransfer
         fields = '__all__'
 
 class CategorySerializer(serializers.ModelSerializer):

@@ -3,7 +3,7 @@ from rest_framework.routers import DefaultRouter
 from .views import (
     UserViewSet, CategoryViewSet, ProductViewSet, OrderViewSet, UserProfileView,
     ReviewViewSet, WishlistViewSet, StoreViewSet, InventoryViewSet, StockTransactionViewSet,
-    StaffViewSet,
+    StockTransferViewSet, StaffViewSet,
     calculate_shipping, create_order, whatsapp_order, track_shipment,
     paystack_webhook, stripe_webhook, sales_analytics
 )
@@ -19,6 +19,7 @@ router.register(r'wishlist', WishlistViewSet)
 router.register(r'stores', StoreViewSet)
 router.register(r'inventory', InventoryViewSet)
 router.register(r'stock-transactions', StockTransactionViewSet)
+router.register(r'stock-transfers', StockTransferViewSet)
 
 urlpatterns = [
     path('user/profile/', UserProfileView.as_view(), name='user-profile'),

@@ -1,6 +1,10 @@
 import json
 import stripe
 import uuid
+import io
+import barcode
+import qrcode
+from barcode.writer import ImageWriter
 from django.conf import settings
 from django.http import HttpResponse
 from django.views.decorators.csrf import csrf_exempt
@@ -11,11 +15,11 @@ from django.utils import timezone
 from rest_framework import viewsets, permissions, filters, generics, status
 from rest_framework.decorators import api_view, permission_classes, action
 from rest_framework.response import Response
-from .models import User, Category, Product, Order, OrderItem, ShippingAddress, Review, Wishlist, Store, Inventory, StockTransaction
+from .models import User, Category, Product, Order, OrderItem, ShippingAddress, Review, Wishlist, Store, Inventory, StockTransaction, StockTransfer
 from .serializers import (
     UserSerializer, CategorySerializer, ProductSerializer, OrderSerializer, 
     ReviewSerializer, WishlistSerializer, StoreSerializer, InventorySerializer, 
-    StockTransactionSerializer
+    StockTransactionSerializer, StockTransferSerializer
 )
 from .permissions import IsAdmin, IsManager, IsAttendant, IsCustomer
 
@@ -114,6 +118,103 @@ class StockTransactionViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         serializer.save(performed_by=self.request.user)
+
+class StockTransferViewSet(viewsets.ModelViewSet):
+    queryset = StockTransfer.objects.all()
+    serializer_class = StockTransferSerializer
+    permission_classes = [IsManager]
+
+    def perform_create(self, serializer):
+        with transaction.atomic():
+            transfer = serializer.save(initiated_by=self.request.user)
+            # Deduct stock from initiating store
+            try:
+                inventory = Inventory.objects.get(
+                    product=transfer.product, 
+                    store=transfer.from_store
+                )
+                if inventory.quantity < transfer.quantity:
+                    raise serializers.ValidationError("Insufficient stock in initiating store.")
+                
+                inventory.quantity -= transfer.quantity
+                inventory.save()
+
+                # Log Transaction for the deduction
+                StockTransaction.objects.create(
+                    product=transfer.product,
+                    from_store=transfer.from_store,
+                    transaction_type='Transfer',
+                    quantity=-transfer.quantity,
+                    performed_by=self.request.user,
+                    reference_id=str(transfer.id),
+                    notes=f"Initiated transfer to {transfer.to_store.name}"
+                )
+            except Inventory.DoesNotExist:
+                raise serializers.ValidationError("Product inventory not found in initiating store.")
+
+    @action(detail=True, methods=['post'])
+    def receive(self, request, pk=None):
+        transfer = self.get_object()
+        if transfer.status != 'Initiated':
+            return Response({'error': 'Transfer already processed'}, status=400)
+        
+        with transaction.atomic():
+            transfer.status = 'Received'
+            transfer.received_by = request.user
+            transfer.save()
+
+            # Add stock to receiving store
+            inventory, _ = Inventory.objects.get_or_create(
+                product=transfer.product,
+                store=transfer.to_store,
+                defaults={'quantity': 0}
+            )
+            inventory.quantity += transfer.quantity
+            inventory.save()
+
+            # Log Transaction for the addition
+            StockTransaction.objects.create(
+                product=transfer.product,
+                to_store=transfer.to_store,
+                transaction_type='Transfer',
+                quantity=transfer.quantity,
+                performed_by=request.user,
+                reference_id=str(transfer.id),
+                notes=f"Received transfer from {transfer.from_store.name}"
+            )
+            
+        return Response({'status': 'Transfer received and stock updated'})
+
+    @action(detail=True, methods=['post'])
+    def cancel(self, request, pk=None):
+        transfer = self.get_object()
+        if transfer.status != 'Initiated':
+            return Response({'error': 'Transfer already processed'}, status=400)
+        
+        with transaction.atomic():
+            transfer.status = 'Cancelled'
+            transfer.save()
+
+            # Return stock to initiating store
+            inventory = Inventory.objects.get(
+                product=transfer.product,
+                store=transfer.from_store
+            )
+            inventory.quantity += transfer.quantity
+            inventory.save()
+            
+            # Log Transaction for the reversal
+            StockTransaction.objects.create(
+                product=transfer.product,
+                to_store=transfer.from_store,
+                transaction_type='Adjustment',
+                quantity=transfer.quantity,
+                performed_by=request.user,
+                reference_id=str(transfer.id),
+                notes=f"Cancelled transfer to {transfer.to_store.name}"
+            )
+            
+        return Response({'status': 'Transfer cancelled and stock returned'})
 
 class ReviewViewSet(viewsets.ModelViewSet):
     queryset = Review.objects.all()
@@ -240,6 +341,41 @@ class ProductViewSet(viewsets.ModelViewSet):
             product.sku = f"SKU-{uuid.uuid4().hex[:6].upper()}"
         product.save()
         return Response({'barcode_data': product.barcode_data, 'sku': product.sku})
+
+    @action(detail=True, methods=['get'])
+    def barcode_image(self, request, pk=None):
+        """
+        Returns a barcode image (Code128) for the product.
+        """
+        product = self.get_object()
+        if not product.barcode_data:
+            return Response({'error': 'Barcode data not set'}, status=400)
+        
+        COD128 = barcode.get_barcode_class('code128')
+        rv = io.BytesIO()
+        code = COD128(product.barcode_data, writer=ImageWriter())
+        code.write(rv)
+        
+        return HttpResponse(rv.getvalue(), content_type="image/png")
+
+    @action(detail=True, methods=['get'])
+    def qrcode_image(self, request, pk=None):
+        """
+        Returns a QR code image for the product.
+        """
+        product = self.get_object()
+        if not product.barcode_data:
+            return Response({'error': 'Barcode data not set'}, status=400)
+        
+        qr = qrcode.QRCode(version=1, box_size=10, border=5)
+        qr.add_data(product.barcode_data)
+        qr.make(fit=True)
+        
+        img = qr.make_image(fill_color="black", back_color="white")
+        rv = io.BytesIO()
+        img.save(rv)
+        
+        return HttpResponse(rv.getvalue(), content_type="image/png")
 
     @action(detail=False, methods=['post'], permission_classes=[IsAdmin])
     def bulk_generate_barcodes(self, request):

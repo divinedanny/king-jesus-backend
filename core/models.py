@@ -118,6 +118,26 @@ class StockTransaction(models.Model):
     def __str__(self):
         return f"{self.transaction_type}: {self.product.name} ({self.quantity})"
 
+class StockTransfer(models.Model):
+    STATUS_CHOICES = [
+        ('Initiated', 'Initiated (In-Transit)'),
+        ('Received', 'Received'),
+        ('Cancelled', 'Cancelled'),
+    ]
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    product = models.ForeignKey(Product, on_delete=models.CASCADE)
+    from_store = models.ForeignKey(Store, on_delete=models.CASCADE, related_name='initiated_transfers')
+    to_store = models.ForeignKey(Store, on_delete=models.CASCADE, related_name='received_transfers')
+    quantity = models.PositiveIntegerField()
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='Initiated')
+    initiated_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='initiated_transfers')
+    received_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='received_transfers')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"Transfer {self.id}: {self.product.name} ({self.quantity}) from {self.from_store.name} to {self.to_store.name}"
+
 class Order(models.Model):
     STATUS_CHOICES = [
         ('Pending', 'Pending'),
