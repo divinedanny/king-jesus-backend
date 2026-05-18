@@ -6,9 +6,49 @@ from django.views.decorators.csrf import csrf_exempt
 from rest_framework import viewsets, permissions, filters, generics, status
 from rest_framework.decorators import api_view, permission_classes, action
 from rest_framework.response import Response
-from .models import User, Category, Product, Order, OrderItem, ShippingAddress, Review, Wishlist
-from .serializers import UserSerializer, CategorySerializer, ProductSerializer, OrderSerializer, ReviewSerializer, WishlistSerializer
-# ... (rest of imports)
+from .models import User, Category, Product, Order, OrderItem, ShippingAddress, Review, Wishlist, Store, Inventory, StockTransaction
+from .serializers import (
+    UserSerializer, CategorySerializer, ProductSerializer, OrderSerializer, 
+    ReviewSerializer, WishlistSerializer, StoreSerializer, InventorySerializer, 
+    StockTransactionSerializer
+)
+
+class StoreViewSet(viewsets.ModelViewSet):
+    queryset = Store.objects.all()
+    serializer_class = StoreSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_permissions(self):
+        if self.action in ['list', 'retrieve']:
+            return [permissions.AllowAny()]
+        return [permissions.IsAdminUser()]
+
+class InventoryViewSet(viewsets.ModelViewSet):
+    queryset = Inventory.objects.all()
+    serializer_class = InventorySerializer
+    permission_classes = [permissions.IsAuthenticated]
+    filter_backends = [filters.SearchFilter]
+    search_fields = ['product__name', 'store__name']
+
+    def get_queryset(self):
+        queryset = Inventory.objects.all()
+        store_id = self.request.query_params.get('store_id')
+        if store_id:
+            queryset = queryset.filter(store_id=store_id)
+        return queryset
+
+    def get_permissions(self):
+        if self.action in ['list', 'retrieve']:
+            return [permissions.AllowAny()]
+        return [permissions.IsAdminUser()]
+
+class StockTransactionViewSet(viewsets.ModelViewSet):
+    queryset = StockTransaction.objects.all()
+    serializer_class = StockTransactionSerializer
+    permission_classes = [permissions.IsAdminUser]
+
+    def perform_create(self, serializer):
+        serializer.save(performed_by=self.request.user)
 
 class ReviewViewSet(viewsets.ModelViewSet):
     queryset = Review.objects.all()
@@ -92,7 +132,7 @@ class ProductViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = ProductSerializer
     permission_classes = [permissions.AllowAny]
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
-    search_fields = ['name', 'description']
+    search_fields = ['name', 'description', 'sku', 'barcode_data']
     ordering_fields = ['price', 'created_at']
 
 class OrderViewSet(viewsets.ModelViewSet):
@@ -160,11 +200,17 @@ def create_order(request):
     currency = request.data.get('currency', 'NGN')
     total_amount = request.data.get('total_amount')
     shipping_rate_id = request.data.get('shipping_rate_id')
+    store_id = request.data.get('store_id')
+    order_source = request.data.get('order_source', 'Web')
+    negotiated_discount = request.data.get('negotiated_discount', 0.00)
 
     # 1. Create Order
     order = Order.objects.create(
         user=user,
+        store_id=store_id,
+        order_source=order_source,
         total_amount=total_amount,
+        negotiated_discount=negotiated_discount,
         currency=currency,
         payment_method=payment_method,
         status='Pending',
@@ -181,11 +227,12 @@ def create_order(request):
             price_at_purchase=item['price']
         )
 
-    # 3. Create Shipping Address
-    ShippingAddress.objects.create(
-        order=order,
-        **shipping_data
-    )
+    # 3. Create Shipping Address (only for Web orders)
+    if order_source == 'Web':
+        ShippingAddress.objects.create(
+            order=order,
+            **shipping_data
+        )
 
     # 4. Initialize Payment
     if payment_method == 'Paystack':
@@ -203,6 +250,12 @@ def create_order(request):
         return Response({
             'order_id': order.id,
             'client_secret': intent.client_secret
+        })
+    elif payment_method in ['Cash', 'POS-Terminal', 'Transfer']:
+        # POS payment, likely already handled or to be handled manually
+        return Response({
+            'order_id': order.id,
+            'status': 'Order recorded'
         })
     
     return Response({'error': 'Invalid payment method'}, status=400)
@@ -225,6 +278,7 @@ def whatsapp_order(request):
         total_amount=total_amount,
         currency=currency,
         payment_method='WhatsApp-Pending',
+        order_source='Web',
         status='Pending'
     )
 

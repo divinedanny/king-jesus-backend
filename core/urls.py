@@ -2,7 +2,7 @@ from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from .views import (
     UserViewSet, CategoryViewSet, ProductViewSet, OrderViewSet, UserProfileView,
-    ReviewViewSet, WishlistViewSet,
+    ReviewViewSet, WishlistViewSet, StoreViewSet, InventoryViewSet, StockTransactionViewSet,
     calculate_shipping, create_order, whatsapp_order, track_shipment,
     paystack_webhook, stripe_webhook
 )
@@ -14,6 +14,9 @@ router.register(r'products', ProductViewSet)
 router.register(r'orders', OrderViewSet)
 router.register(r'reviews', ReviewViewSet)
 router.register(r'wishlist', WishlistViewSet)
+router.register(r'stores', StoreViewSet)
+router.register(r'inventory', InventoryViewSet)
+router.register(r'stock-transactions', StockTransactionViewSet)
 
 urlpatterns = [
     path('user/profile/', UserProfileView.as_view(), name='user-profile'),
