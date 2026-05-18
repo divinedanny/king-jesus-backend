@@ -23,21 +23,33 @@ class TerminalAfricaClient:
         """
         data expected: sender_address, recipient_address, parcel
         """
-        response = requests.post(f"{cls.BASE_URL}/rates", json=data, headers=cls.HEADERS)
-        return response.json()
+        try:
+            response = requests.post(f"{cls.BASE_URL}/rates", json=data, headers=cls.HEADERS)
+            response.raise_for_status()
+            return response.json()
+        except requests.exceptions.RequestException as e:
+            return {"error": "Terminal Africa API error", "details": str(e)}
 
     @classmethod
     def create_shipment(cls, data):
         """
         data expected: address_from, address_to, parcel, rate, etc.
         """
-        response = requests.post(f"{cls.BASE_URL}/shipments", json=data, headers=cls.HEADERS)
-        return response.json()
+        try:
+            response = requests.post(f"{cls.BASE_URL}/shipments", json=data, headers=cls.HEADERS)
+            response.raise_for_status()
+            return response.json()
+        except requests.exceptions.RequestException as e:
+            return {"error": "Terminal Africa API error", "details": str(e)}
 
     @classmethod
     def track_shipment(cls, shipment_id):
-        response = requests.get(f"{cls.BASE_URL}/track/{shipment_id}", headers=cls.HEADERS)
-        return response.json()
+        try:
+            response = requests.get(f"{cls.BASE_URL}/track/{shipment_id}", headers=cls.HEADERS)
+            response.raise_for_status()
+            return response.json()
+        except requests.exceptions.RequestException as e:
+            return {"error": "Terminal Africa API error", "details": str(e)}
 
 class EmailNotifier:
     @staticmethod
@@ -62,19 +74,26 @@ class PaymentProvider:
     @staticmethod
     def create_paystack_payment(amount, email, reference):
         # Paystack amount is in kobo
-        response = paystack.transaction.initialize(
-            reference=reference,
-            amount=int(amount * 100),
-            email=email,
-        )
-        return response
+        try:
+            response = paystack.transaction.initialize(
+                reference=reference,
+                amount=int(amount * 100),
+                email=email,
+            )
+            return response
+        except Exception as e:
+            return {"status": False, "message": str(e)}
 
     @staticmethod
     def create_stripe_payment(amount, currency, order_id):
         # Stripe amount is in cents
-        intent = stripe.PaymentIntent.create(
-            amount=int(amount * 100),
-            currency=currency.lower(),
-            metadata={'order_id': order_id}
-        )
-        return intent
+        try:
+            intent = stripe.PaymentIntent.create(
+                amount=int(amount * 100),
+                currency=currency.lower(),
+                metadata={'order_id': order_id}
+            )
+            return intent
+        except stripe.error.StripeError as e:
+            # You might want to handle specific Stripe errors differently
+            raise Exception(f"Stripe error: {str(e)}")

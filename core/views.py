@@ -5,7 +5,8 @@ from django.conf import settings
 from django.http import HttpResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.db import transaction
-from django.db.models import Sum, Q
+from django.db.models import Sum, Q, Count
+from django.db.models.functions import TruncDay, TruncWeek
 from django.utils import timezone
 from rest_framework import viewsets, permissions, filters, generics, status
 from rest_framework.decorators import api_view, permission_classes, action
@@ -41,6 +42,21 @@ class InventoryViewSet(viewsets.ModelViewSet):
         if store_id:
             queryset = queryset.filter(store_id=store_id)
         return queryset
+
+    @action(detail=False, methods=['get'], permission_classes=[IsManager])
+    def low_stock_alerts(self, request):
+        """
+        List products with stock levels below a threshold.
+        """
+        threshold = int(request.query_params.get('threshold', 10))
+        store_id = request.query_params.get('store_id')
+        
+        queryset = Inventory.objects.filter(quantity__lt=threshold)
+        if store_id:
+            queryset = queryset.filter(store_id=store_id)
+        
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)
 
     @action(detail=False, methods=['post'], permission_classes=[IsManager])
     def transfer(self, request):
@@ -164,6 +180,20 @@ class UserViewSet(viewsets.ModelViewSet):
     serializer_class = UserSerializer
     permission_classes = [IsAdmin]
 
+class StaffViewSet(viewsets.ModelViewSet):
+    """
+    Super Admin only: Manage Store Managers and Attendants.
+    """
+    queryset = User.objects.filter(role__in=['Manager', 'Attendant'])
+    serializer_class = UserSerializer
+    permission_classes = [IsAdmin]
+
+    def perform_create(self, serializer):
+        # Default password for new staff, should be changed
+        user = serializer.save()
+        user.set_password('KJC-Staff-2024')
+        user.save()
+
 class UserProfileView(generics.RetrieveUpdateAPIView):
     serializer_class = UserSerializer
     permission_classes = [permissions.IsAuthenticated]
@@ -210,6 +240,19 @@ class ProductViewSet(viewsets.ModelViewSet):
             product.sku = f"SKU-{uuid.uuid4().hex[:6].upper()}"
         product.save()
         return Response({'barcode_data': product.barcode_data, 'sku': product.sku})
+
+    @action(detail=False, methods=['post'], permission_classes=[IsAdmin])
+    def bulk_generate_barcodes(self, request):
+        products = Product.objects.filter(Q(barcode_data__isnull=True) | Q(sku__isnull=True) | Q(barcode_data='') | Q(sku=''))
+        count = 0
+        for product in products:
+            if not product.barcode_data:
+                product.barcode_data = f"KJ-{uuid.uuid4().hex[:8].upper()}"
+            if not product.sku:
+                product.sku = f"SKU-{uuid.uuid4().hex[:6].upper()}"
+            product.save()
+            count += 1
+        return Response({'status': f'Generated barcodes/SKUs for {count} products'})
 
 class OrderViewSet(viewsets.ModelViewSet):
     queryset = Order.objects.all()
@@ -408,30 +451,48 @@ def whatsapp_order(request):
 @permission_classes([IsAttendant])
 def sales_analytics(request):
     """
-    Sales data filtered by store/source.
+    Enhanced sales data: revenue, count, best sellers, and periodic trends.
     """
     store_id = request.query_params.get('store_id')
     source = request.query_params.get('order_source')
-    start_date = request.query_params.get('start_date')
+    start_date = request.query_params.get('start_date', (timezone.now() - timezone.timedelta(days=30)).date())
     
-    queryset = Order.objects.filter(status='Paid')
+    orders = Order.objects.filter(status='Paid', created_at__date__gte=start_date)
     if store_id:
-        queryset = queryset.filter(store_id=store_id)
+        orders = orders.filter(store_id=store_id)
     if source:
-        queryset = queryset.filter(order_source=source)
-    if start_date:
-        queryset = queryset.filter(created_at__gte=start_date)
+        orders = orders.filter(order_source=source)
 
-    total_sales = queryset.aggregate(total=Sum('total_amount'))['total'] or 0
-    count = queryset.count()
+    total_revenue = orders.aggregate(total=Sum('total_amount'))['total'] or 0
+    order_count = orders.count()
     
-    # Sales by source
-    by_source = queryset.values('order_source').annotate(total=Sum('total_amount'))
+    # Revenue by Source
+    by_source = orders.values('order_source').annotate(total=Sum('total_amount'))
+    
+    # Best Sellers (Top 5)
+    best_sellers = OrderItem.objects.filter(order__in=orders).values(
+        'product__name'
+    ).annotate(
+        total_sold=Sum('quantity'),
+        revenue=Sum(models.F('quantity') * models.F('price_at_purchase'))
+    ).order_by('-total_sold')[:5]
+
+    # Daily Trends
+    daily_sales = orders.annotate(
+        day=TruncDay('created_at')
+    ).values('day').annotate(
+        revenue=Sum('total_amount'),
+        count=Count('id')
+    ).order_by('day')
     
     return Response({
-        'total_revenue': total_sales,
-        'order_count': count,
-        'breakdown_by_source': by_source
+        'summary': {
+            'total_revenue': total_revenue,
+            'order_count': order_count,
+        },
+        'breakdown_by_source': by_source,
+        'best_sellers': best_sellers,
+        'daily_trends': daily_sales
     })
 
 @api_view(['GET'])

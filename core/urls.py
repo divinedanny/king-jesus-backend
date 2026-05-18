@@ -3,12 +3,14 @@ from rest_framework.routers import DefaultRouter
 from .views import (
     UserViewSet, CategoryViewSet, ProductViewSet, OrderViewSet, UserProfileView,
     ReviewViewSet, WishlistViewSet, StoreViewSet, InventoryViewSet, StockTransactionViewSet,
+    StaffViewSet,
     calculate_shipping, create_order, whatsapp_order, track_shipment,
     paystack_webhook, stripe_webhook, sales_analytics
 )
 
 router = DefaultRouter()
 router.register(r'users', UserViewSet)
+router.register(r'staff', StaffViewSet, basename='staff')
 router.register(r'categories', CategoryViewSet)
 router.register(r'products', ProductViewSet)
 router.register(r'orders', OrderViewSet)
