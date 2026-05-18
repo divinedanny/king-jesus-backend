@@ -4,7 +4,7 @@ from .views import (
     UserViewSet, CategoryViewSet, ProductViewSet, OrderViewSet, UserProfileView,
     ReviewViewSet, WishlistViewSet, StoreViewSet, InventoryViewSet, StockTransactionViewSet,
     calculate_shipping, create_order, whatsapp_order, track_shipment,
-    paystack_webhook, stripe_webhook
+    paystack_webhook, stripe_webhook, sales_analytics
 )
 
 router = DefaultRouter()
@@ -23,6 +23,7 @@ urlpatterns = [
     path('checkout/calculate-shipping/', calculate_shipping, name='calculate-shipping'),
     path('checkout/create-order/', create_order, name='create-order'),
     path('checkout/whatsapp-order/', whatsapp_order, name='whatsapp-order'),
+    path('analytics/sales/', sales_analytics, name='sales-analytics'),
     path('tracking/<str:tracking_number>/', track_shipment, name='track-shipment'),
     path('payments/paystack/webhook/', paystack_webhook, name='paystack-webhook'),
     path('payments/stripe/webhook/', stripe_webhook, name='stripe-webhook'),

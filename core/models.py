@@ -3,8 +3,15 @@ from django.db import models
 from django.contrib.auth.models import AbstractUser
 
 class User(AbstractUser):
+    ROLE_CHOICES = [
+        ('Admin', 'Super Admin'),
+        ('Manager', 'Store Manager'),
+        ('Attendant', 'Store Attendant'),
+        ('Customer', 'Customer'),
+    ]
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     google_id = models.CharField(max_length=255, blank=True, null=True)
+    role = models.CharField(max_length=20, choices=ROLE_CHOICES, default='Customer')
     
     # Use email as username
     email = models.EmailField(unique=True)
@@ -14,7 +21,7 @@ class User(AbstractUser):
     REQUIRED_FIELDS = ['username']
 
     def __str__(self):
-        return self.email
+        return f"{self.email} ({self.role})"
 
 class Store(models.Model):
     LOCATION_TYPES = [
@@ -51,9 +58,9 @@ class Product(models.Model):
     barcode_data = models.CharField(max_length=255, blank=True, null=True)
     name = models.CharField(max_length=255)
     description = models.TextField()
-    price = models.DecimalField(max_digits=10, decimal_places=2) # This acts as base_price
+    price = models.DecimalField(max_digits=10, decimal_places=2) # Base Price
     currency = models.CharField(max_length=3, choices=[('NGN', 'Naira'), ('USD', 'US Dollar')])
-    stock_quantity = models.IntegerField(default=0) # Total stock across all stores (legacy/aggregated)
+    stock_quantity = models.IntegerField(default=0) # Total stock (legacy)
     images = models.JSONField(default=list) # Array of URLs
     category = models.ForeignKey(Category, on_delete=models.CASCADE, related_name='products')
     created_at = models.DateTimeField(auto_now_add=True)
@@ -104,7 +111,7 @@ class StockTransaction(models.Model):
     transaction_type = models.CharField(max_length=20, choices=TRANSACTION_TYPES)
     quantity = models.IntegerField() # Positive for increase, negative for decrease
     performed_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
-    reference_id = models.CharField(max_length=255, blank=True, null=True) # e.g. Order ID
+    reference_id = models.CharField(max_length=255, blank=True, null=True) # e.g. Order ID or Transfer ID
     notes = models.TextField(blank=True)
     timestamp = models.DateTimeField(auto_now_add=True)
 

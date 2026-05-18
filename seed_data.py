@@ -7,19 +7,44 @@ django.setup()
 from core.models import Category, Product, User, Store, Inventory
 
 def seed_data():
-    # Superuser
+    # Superuser (Admin)
     if not User.objects.filter(email='admin@kingjesus.com').exists():
-        User.objects.create_superuser(username='admin', email='admin@kingjesus.com', password='Admin@123456')
+        User.objects.create_superuser(
+            username='admin', 
+            email='admin@kingjesus.com', 
+            password='Admin@123456',
+            role='Admin'
+        )
         print("Superuser created successfully.")
+
+    # Manager
+    if not User.objects.filter(email='manager@kingjesus.com').exists():
+        User.objects.create_user(
+            username='manager',
+            email='manager@kingjesus.com',
+            password='Manager@123456',
+            role='Manager'
+        )
+        print("Manager user created.")
+
+    # Attendant
+    if not User.objects.filter(email='attendant@kingjesus.com').exists():
+        User.objects.create_user(
+            username='attendant',
+            email='attendant@kingjesus.com',
+            password='Attendant@123456',
+            role='Attendant'
+        )
+        print("Attendant user created.")
 
     # Stores
     warehouse, _ = Store.objects.get_or_create(
         name='Main Warehouse', 
-        defaults={'location_type': 'Warehouse', 'address': '123 Warehouse Way', 'city': 'Lagos'}
+        defaults={'location_type': 'Warehouse', 'address': '123 Warehouse Way', 'city': 'Lagos', 'state': 'Lagos'}
     )
     retail_lagos, _ = Store.objects.get_or_create(
         name='Lagos Retail Branch', 
-        defaults={'location_type': 'Retail', 'address': '456 Retail Road', 'city': 'Lagos'}
+        defaults={'location_type': 'Retail', 'address': '456 Retail Road', 'city': 'Lagos', 'state': 'Lagos'}
     )
     print("Stores created/retrieved.")
 
@@ -98,7 +123,7 @@ def seed_data():
             defaults={'quantity': retail_qty}
         )
 
-    print("Seed data updated with Multi-Store support successfully.")
+    print("Seed data updated with RBAC and Multi-Store support successfully.")
 
 if __name__ == '__main__':
     seed_data()

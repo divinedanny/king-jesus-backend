@@ -1,8 +1,12 @@
 import json
 import stripe
+import uuid
 from django.conf import settings
 from django.http import HttpResponse
 from django.views.decorators.csrf import csrf_exempt
+from django.db import transaction
+from django.db.models import Sum, Q
+from django.utils import timezone
 from rest_framework import viewsets, permissions, filters, generics, status
 from rest_framework.decorators import api_view, permission_classes, action
 from rest_framework.response import Response
@@ -12,23 +16,24 @@ from .serializers import (
     ReviewSerializer, WishlistSerializer, StoreSerializer, InventorySerializer, 
     StockTransactionSerializer
 )
+from .permissions import IsAdmin, IsManager, IsAttendant, IsCustomer
 
 class StoreViewSet(viewsets.ModelViewSet):
     queryset = Store.objects.all()
     serializer_class = StoreSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [IsManager]
 
     def get_permissions(self):
         if self.action in ['list', 'retrieve']:
             return [permissions.AllowAny()]
-        return [permissions.IsAdminUser()]
+        return super().get_permissions()
 
 class InventoryViewSet(viewsets.ModelViewSet):
     queryset = Inventory.objects.all()
     serializer_class = InventorySerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [IsAttendant]
     filter_backends = [filters.SearchFilter]
-    search_fields = ['product__name', 'store__name']
+    search_fields = ['product__name', 'store__name', 'product__sku', 'product__barcode_data']
 
     def get_queryset(self):
         queryset = Inventory.objects.all()
@@ -37,15 +42,59 @@ class InventoryViewSet(viewsets.ModelViewSet):
             queryset = queryset.filter(store_id=store_id)
         return queryset
 
-    def get_permissions(self):
-        if self.action in ['list', 'retrieve']:
-            return [permissions.AllowAny()]
-        return [permissions.IsAdminUser()]
+    @action(detail=False, methods=['post'], permission_classes=[IsManager])
+    def transfer(self, request):
+        """
+        Initiate a stock transfer between stores.
+        """
+        product_id = request.data.get('product_id')
+        from_store_id = request.data.get('from_store_id')
+        to_store_id = request.data.get('to_store_id')
+        quantity = int(request.data.get('quantity', 0))
+
+        if not all([product_id, from_store_id, to_store_id, quantity > 0]):
+            return Response({'error': 'Missing required fields or invalid quantity'}, status=400)
+
+        try:
+            with transaction.atomic():
+                # 1. Check stock in from_store
+                from_inventory = Inventory.objects.get(product_id=product_id, store_id=from_store_id)
+                if from_inventory.quantity < quantity:
+                    return Response({'error': 'Insufficient stock in originating store'}, status=400)
+
+                # 2. Deduct from from_store
+                from_inventory.quantity -= quantity
+                from_inventory.save()
+
+                # 3. Add to to_store (or create if doesn't exist)
+                to_inventory, _ = Inventory.objects.get_or_create(
+                    product_id=product_id, store_id=to_store_id,
+                    defaults={'quantity': 0}
+                )
+                to_inventory.quantity += quantity
+                to_inventory.save()
+
+                # 4. Log Transaction
+                StockTransaction.objects.create(
+                    product_id=product_id,
+                    from_store_id=from_store_id,
+                    to_store_id=to_store_id,
+                    transaction_type='Transfer',
+                    quantity=quantity,
+                    performed_by=request.user,
+                    notes=request.data.get('notes', '')
+                )
+
+                return Response({'status': 'Transfer successful'})
+        except Inventory.DoesNotExist:
+            return Response({'error': 'Inventory record not found'}, status=404)
+        except Exception as e:
+            return Response({'error': str(e)}, status=500)
 
 class StockTransactionViewSet(viewsets.ModelViewSet):
     queryset = StockTransaction.objects.all()
     serializer_class = StockTransactionSerializer
-    permission_classes = [permissions.IsAdminUser]
+    permission_classes = [IsManager]
 
     def perform_create(self, serializer):
         serializer.save(performed_by=self.request.user)
@@ -113,7 +162,7 @@ class GoogleLogin(SocialLoginView):
 class UserViewSet(viewsets.ModelViewSet):
     queryset = User.objects.all()
     serializer_class = UserSerializer
-    permission_classes = [permissions.IsAdminUser]
+    permission_classes = [IsAdmin]
 
 class UserProfileView(generics.RetrieveUpdateAPIView):
     serializer_class = UserSerializer
@@ -127,13 +176,40 @@ class CategoryViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = CategorySerializer
     permission_classes = [permissions.AllowAny]
 
-class ProductViewSet(viewsets.ReadOnlyModelViewSet):
+class ProductViewSet(viewsets.ModelViewSet):
     queryset = Product.objects.all()
     serializer_class = ProductSerializer
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [IsManager]
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
     search_fields = ['name', 'description', 'sku', 'barcode_data']
     ordering_fields = ['price', 'created_at']
+
+    def get_permissions(self):
+        if self.action in ['list', 'retrieve', 'by_barcode']:
+            return [permissions.AllowAny()]
+        return super().get_permissions()
+
+    @action(detail=False, methods=['get'])
+    def by_barcode(self, request):
+        code = request.query_params.get('code')
+        if not code:
+            return Response({'error': 'Barcode code required'}, status=400)
+        try:
+            product = Product.objects.get(Q(barcode_data=code) | Q(sku=code))
+            serializer = self.get_serializer(product)
+            return Response(serializer.data)
+        except Product.DoesNotExist:
+            return Response({'error': 'Product not found'}, status=404)
+
+    @action(detail=True, methods=['post'], permission_classes=[IsAdmin])
+    def generate_barcode(self, request, pk=None):
+        product = self.get_object()
+        if not product.barcode_data:
+            product.barcode_data = f"KJ-{uuid.uuid4().hex[:8].upper()}"
+        if not product.sku:
+            product.sku = f"SKU-{uuid.uuid4().hex[:6].upper()}"
+        product.save()
+        return Response({'barcode_data': product.barcode_data, 'sku': product.sku})
 
 class OrderViewSet(viewsets.ModelViewSet):
     queryset = Order.objects.all()
@@ -141,9 +217,10 @@ class OrderViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        if self.request.user.is_staff:
+        user = self.request.user
+        if user.role in ['Admin', 'Manager']:
             return Order.objects.all()
-        return Order.objects.filter(user=self.request.user)
+        return Order.objects.filter(user=user)
 
 @api_view(['POST'])
 @permission_classes([permissions.AllowAny])
@@ -188,7 +265,7 @@ def calculate_shipping(request):
     return Response(result)
 
 @api_view(['POST'])
-@permission_classes([permissions.AllowAny])
+@permission_classes([IsCustomer | IsAttendant])
 def create_order(request):
     """
     Creates an order and returns payment initialization data.
@@ -202,11 +279,16 @@ def create_order(request):
     shipping_rate_id = request.data.get('shipping_rate_id')
     store_id = request.data.get('store_id')
     order_source = request.data.get('order_source', 'Web')
-    negotiated_discount = request.data.get('negotiated_discount', 0.00)
+    negotiated_discount = float(request.data.get('negotiated_discount', 0.00))
+
+    # RBAC: Only Attendants/Managers can process POS orders or apply discounts
+    if order_source == 'POS' or negotiated_discount > 0:
+        if user and user.role not in ['Admin', 'Manager', 'Attendant']:
+            return Response({'error': 'Unauthorized to process POS sales or apply discounts'}, status=403)
 
     # 1. Create Order
     order = Order.objects.create(
-        user=user,
+        user=user if order_source == 'Web' else None, # POS orders might not have a registered user
         store_id=store_id,
         order_source=order_source,
         total_amount=total_amount,
@@ -234,7 +316,7 @@ def create_order(request):
             **shipping_data
         )
 
-    # 4. Initialize Payment
+    # 4. Initialize Payment / Fulfill if POS
     if payment_method == 'Paystack':
         # Local payment
         ref = str(order.id)
@@ -252,10 +334,13 @@ def create_order(request):
             'client_secret': intent.client_secret
         })
     elif payment_method in ['Cash', 'POS-Terminal', 'Transfer']:
-        # POS payment, likely already handled or to be handled manually
+        # POS payment - fulfill immediately
+        order.status = 'Paid'
+        order.save()
+        fulfill_order(order)
         return Response({
             'order_id': order.id,
-            'status': 'Order recorded'
+            'status': 'Order recorded and fulfilled'
         })
     
     return Response({'error': 'Invalid payment method'}, status=400)
@@ -320,11 +405,38 @@ def whatsapp_order(request):
     })
 
 @api_view(['GET'])
+@permission_classes([IsAttendant])
+def sales_analytics(request):
+    """
+    Sales data filtered by store/source.
+    """
+    store_id = request.query_params.get('store_id')
+    source = request.query_params.get('order_source')
+    start_date = request.query_params.get('start_date')
+    
+    queryset = Order.objects.filter(status='Paid')
+    if store_id:
+        queryset = queryset.filter(store_id=store_id)
+    if source:
+        queryset = queryset.filter(order_source=source)
+    if start_date:
+        queryset = queryset.filter(created_at__gte=start_date)
+
+    total_sales = queryset.aggregate(total=Sum('total_amount'))['total'] or 0
+    count = queryset.count()
+    
+    # Sales by source
+    by_source = queryset.values('order_source').annotate(total=Sum('total_amount'))
+    
+    return Response({
+        'total_revenue': total_sales,
+        'order_count': count,
+        'breakdown_by_source': by_source
+    })
+
+@api_view(['GET'])
 @permission_classes([permissions.AllowAny])
 def track_shipment(request, tracking_number):
-    # In a real scenario, tracking_number might be the terminal_africa_shipment_id
-    # or we might search our database for the shipment ID associated with this tracking number.
-    # For now, we proxy to Terminal Africa.
     result = TerminalAfricaClient.track_shipment(tracking_number)
     return Response(result)
 
@@ -334,7 +446,6 @@ def track_shipment(request, tracking_number):
 @api_view(['POST'])
 @permission_classes([permissions.AllowAny])
 def paystack_webhook(request):
-    # Verify Paystack signature here in production
     payload = request.data
     if payload['event'] == 'transaction.success':
         order_id = payload['data']['reference']
@@ -356,14 +467,11 @@ def stripe_webhook(request):
     payload = request.body
     sig_header = request.META.get('HTTP_STRIPE_SIGNATURE')
     event = None
-
     try:
         event = stripe.Webhook.construct_event(
             payload, sig_header, settings.STRIPE_WEBHOOK_SECRET
         )
-    except ValueError as e:
-        return HttpResponse(status=400)
-    except stripe.error.SignatureVerificationError as e:
+    except Exception as e:
         return HttpResponse(status=400)
 
     if event['type'] == 'payment_intent.succeeded':
@@ -378,5 +486,4 @@ def stripe_webhook(request):
                 EmailNotifier.send_order_confirmation(order)
         except Order.DoesNotExist:
             return HttpResponse(status=404)
-
     return HttpResponse(status=200)
