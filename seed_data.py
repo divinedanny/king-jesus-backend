@@ -4,9 +4,14 @@ import django
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'config.settings')
 django.setup()
 
-from core.models import Category, Product
+from core.models import Category, Product, User
 
 def seed_data():
+    # Superuser
+    if not User.objects.filter(email='admin@kingjesus.com').exists():
+        User.objects.create_superuser(username='admin', email='admin@kingjesus.com', password='Admin@123456')
+        print("Superuser created successfully.")
+
     # Categories
     shirts, _ = Category.objects.get_or_create(name='Shirts', slug='shirts')
     accessories, _ = Category.objects.get_or_create(name='Accessories', slug='accessories')
